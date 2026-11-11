@@ -1,0 +1,21 @@
+{
+  "id": "./",
+  "name": "Rastro - editor de tabuleiros",
+  "short_name": "Rastro",
+  "description": "Editor e jogo de tabuleiros digitais, com acesso offline neste aparelho.",
+  "lang": "pt-BR",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#101a1b",
+  "theme_color": "#101a1b",
+  "icons": [
+    {
+      "src": "./icons/rastro.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

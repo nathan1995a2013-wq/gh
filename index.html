@@ -27,9 +27,16 @@
     @media(max-width:520px){header{padding:0 10px;gap:9px}.brand{font-size:16px}.brand-mark{width:21px;height:21px}.header-divider{display:none}.board-name{max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.save-state{font-size:0;gap:5px}.save-dot{width:8px;height:8px}.header-actions{gap:4px}.quiet-btn{min-height:31px;padding:0 7px;font-size:10px}.icon-btn{width:31px;height:31px;min-height:31px}.workspace{grid-template-columns:44px minmax(0,1fr)}.app{grid-template-rows:48px 1fr 88px}.phase-tag{font-size:9px;padding:7px 8px;top:9px}.floating.zoom-tools{right:8px;bottom:9px;gap:4px}.floating.fit-tools{left:8px;top:8px}.zoom-tools .icon-btn{width:29px;height:29px;min-height:29px}.node{width:38px;height:38px;font-size:11px}.mode-switch button{padding:7px 7px;font-size:10px}.game-controls{gap:4px}.roll-btn{font-size:10px;padding:8px}.die{width:29px;height:29px}.hud{gap:6px}.health{gap:4px}.health-track{width:45px}.inventory span{font-size:8px;padding:4px}.modal-head,.modal-body{padding-left:15px;padding-right:15px}.modal-foot{padding:10px 15px}}
     @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}
     .workspace{overflow:hidden}
+    body.player-mode .rail,body.player-mode #editorPanel,body.player-mode #editorMode,body.player-mode #tilesBtn,body.player-mode #importBtn,body.player-mode #exportBtn,body.player-mode #savedBtn,body.player-mode #saveState,body.player-mode #publishBtn,body.player-mode #syncBtn,body.player-mode #logoutBtn{display:none!important}
+    body.player-mode .workspace{grid-template-columns:minmax(0,1fr) 286px}
+    body.player-mode .mode-switch{display:none}
+    body.editor-mode #loginBtn{display:none}
+    body.player-mode #gameMode{display:none}
+    #loginBtn,#logoutBtn,#publishBtn,#syncBtn{white-space:nowrap}
+    @media(max-width:850px){body.player-mode .workspace{grid-template-columns:minmax(0,1fr)}}
   </style>
 </head>
-<body>
+<body class="player-mode">
   <div class="app">
     <header>
       <div class="brand"><span class="brand-mark">R</span> Rastro</div>
@@ -37,6 +44,10 @@
       <div class="board-name" id="boardName">Novo tabuleiro</div>
       <div class="save-state" id="saveState"><span class="save-dot"></span><span id="saveLabel">salvo</span></div>
       <div class="header-actions">
+        <button class="quiet-btn" id="loginBtn">Acesso do editor</button>
+        <button class="quiet-btn" id="syncBtn">Sincronizar</button>
+        <button class="quiet-btn primary" id="publishBtn">Publicar</button>
+        <button class="quiet-btn" id="logoutBtn">Sair</button>
         <button class="quiet-btn wide" id="tilesBtn" title="Construir cenário com tiles PNG">Tiles</button>
         <button class="quiet-btn wide" id="importBtn" title="Importar tabuleiro JSON">Importar</button>
         <button class="quiet-btn wide" id="exportBtn" title="Exportar tabuleiro JSON">Exportar</button>
@@ -65,7 +76,7 @@
           <svg class="edges" id="edges" viewBox="0 0 1600 1000" aria-hidden="true"></svg>
           <div id="nodes"></div>
         </div>
-        <div class="empty-note" id="emptyNote"><strong>Desenhe seu percurso</strong><span>Clique no tabuleiro para criar o primeiro nó</span></div>
+        <div class="empty-note" id="emptyNote"><strong id="emptyTitle">Nenhum tabuleiro publicado</strong><span id="emptyDescription">Volte mais tarde ou fale com o administrador do jogo.</span></div>
         <div class="phase-tag" id="phaseTag">EDITOR · percurso livre</div>
         <div class="floating fit-tools"><button class="icon-btn" id="fitBtn" title="Encaixar tabuleiro">⤢</button></div>
         <div class="floating zoom-tools"><button class="icon-btn" id="zoomOut" title="Diminuir zoom">−</button><button class="icon-btn" id="zoomIn" title="Aumentar zoom">+</button></div>
@@ -110,10 +121,19 @@
     <div class="modal-foot" id="modalFoot"></div>
   </dialog>
   <div class="toast" id="toast" role="status"></div>
+  <script src="./supabase-config.js"></script>
   <script>
     (()=>{
       const STORAGE_KEY='rastro-board-v1', SAVED_KEY='rastro-saved-boards-v1';
+      const PUBLISHED_CACHE_KEY='rastro-published-board-v1', GAME_PROGRESS_KEY='rastro-game-progress-v1';
+      const SESSION_KEY='rastro-supabase-session-v1', EDITOR_CACHE_KEY='rastro-editor-verified-v1';
+      const WORKSPACE_REVISION_KEY='rastro-workspace-revision-v1';
+      const CLOUD_PENDING_KEY='rastro-cloud-pending-v1';
       const DB_NAME='rastro-local-v1', DB_STORE='records';
+      const supabaseConfig=window.RASTRO_SUPABASE_CONFIG||{};
+      const supabaseUrl=String(supabaseConfig.url||'').replace(/\/+$/,'');
+      const supabaseAnonKey=String(supabaseConfig.anonKey||'');
+      let cloudSession=null, cloudWorkspaceUpdatedAt=null, publishedUpdatedAt=null, pendingWorkspaceConflict=null;
       let database=null, useLocalStorage=false;
       const storageReady=new Promise((resolve,reject)=>{
         if(!window.indexedDB){useLocalStorage=true;resolve();return}
@@ -148,6 +168,42 @@
           transaction.onabort=()=>reject(transaction.error||new Error('A gravação no armazenamento local foi interrompida.'));
         });
       }
+      function isSupabaseConfigured(){return /^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(supabaseUrl)&&supabaseAnonKey.length>20}
+      function readCloudSession(){try{return JSON.parse(localStorage.getItem(SESSION_KEY)||'null')}catch{return null}}
+      function writeCloudSession(session){
+        cloudSession=session;
+        try{if(session)localStorage.setItem(SESSION_KEY,JSON.stringify(session));else localStorage.removeItem(SESSION_KEY)}catch(error){console.warn('Não foi possível guardar a sessão do editor neste aparelho:',error)}
+      }
+      function setWorkspaceRevision(value){
+        cloudWorkspaceUpdatedAt=value;
+        try{if(value)localStorage.setItem(WORKSPACE_REVISION_KEY,value);else localStorage.removeItem(WORKSPACE_REVISION_KEY)}catch(error){console.warn('Não foi possível guardar a versão sincronizada neste aparelho:',error)}
+      }
+      function setCloudPending(value){
+        state.cloudPending=value;
+        try{if(value)localStorage.setItem(CLOUD_PENDING_KEY,'true');else localStorage.removeItem(CLOUD_PENDING_KEY)}catch(error){console.warn('Não foi possível guardar o estado da sincronização:',error)}
+      }
+      function cloudFailure(message,status){const error=new Error(message);error.status=status;return error}
+      async function refreshCloudSession(){
+        if(!cloudSession?.refresh_token)throw cloudFailure('Sua sessão expirou. Entre novamente para sincronizar.',401);
+        const response=await fetch(`${supabaseUrl}/auth/v1/token?grant_type=refresh_token`,{method:'POST',headers:{apikey:supabaseAnonKey,'Content-Type':'application/json'},body:JSON.stringify({refresh_token:cloudSession.refresh_token})});
+        if(!response.ok){writeCloudSession(null);throw cloudFailure('Sua sessão expirou. Entre novamente para sincronizar.',response.status)}
+        const renewed=await response.json();
+        writeCloudSession({...renewed,expires_at:Date.now()+Number(renewed.expires_in||3600)*1000});
+      }
+      async function cloudRequest(path,options={},authenticated=true,retried=false){
+        if(!isSupabaseConfigured())throw cloudFailure('Configure a URL e a chave pública do Supabase em supabase-config.js.');
+        if(authenticated&&(!cloudSession||Number(cloudSession.expires_at||0)<Date.now()+60000))await refreshCloudSession();
+        const headers={apikey:supabaseAnonKey,...(options.headers||{})};
+        if(authenticated)headers.Authorization=`Bearer ${cloudSession.access_token}`;
+        const response=await fetch(`${supabaseUrl}${path}`,{...options,headers});
+        if(response.status===401&&authenticated&&!retried){await refreshCloudSession();return cloudRequest(path,options,authenticated,true)}
+        if(!response.ok){
+          let message=`Falha de comunicação com o Supabase (${response.status}).`;
+          try{const detail=await response.json();if(detail.message)message=detail.message}catch{}
+          throw cloudFailure(message,response.status);
+        }
+        return response;
+      }
       async function initializeStorage(){
         await storageReady;
         if(useLocalStorage)return;
@@ -160,16 +216,53 @@
         }
       }
       const $=id=>document.getElementById(id);
-      const state={nodes:[],nextId:1,background:'',tiles:[],tileCells:[],tileSize:256,selectedTile:null,tileRotation:0,tileFlipX:false,tileFlipY:false,history:[],future:[],hordeDelay:30,boardTitle:'Novo tabuleiro',mode:'editor',origin:null,selected:null,tool:'select',pan:{x:120,y:80},zoom:.75,dice:null,used:[],chosenDie:0,pawn:null,health:100,keys:0,faith:0,sword:0,shoes:0,wait:0,horde:null,miniHordes:[],hordeTimer:null,moveTarget:null,pendingMove:null,autosave:null,saveStatus:'saved',dirty:false};
+      const state={nodes:[],nextId:1,background:'',tiles:[],tileCells:[],tileSize:256,selectedTile:null,tileRotation:0,tileFlipX:false,tileFlipY:false,history:[],future:[],hordeDelay:30,boardTitle:'Novo tabuleiro',mode:'game',isEditor:false,hasPublishedBoard:false,origin:null,selected:null,tool:'select',pan:{x:120,y:80},zoom:.75,dice:null,used:[],chosenDie:0,pawn:null,health:100,keys:0,faith:0,sword:0,shoes:0,wait:0,horde:null,miniHordes:[],openedBlocks:[],hordeTimer:null,hordeInterval:null,moveTarget:null,pendingMove:null,autosave:null,gameAutosave:null,gameProgressKey:null,saveStatus:'saved',dirty:false,cloudPending:false};
       const area=$('boardArea'), world=$('mapWorld');
       function snapshot(){return JSON.stringify({nodes:state.nodes,nextId:state.nextId,background:state.background,tiles:state.tiles,tileCells:state.tileCells,tileSize:state.tileSize,hordeDelay:state.hordeDelay,boardTitle:state.boardTitle})}
       function setSaveStatus(status,label){state.saveStatus=status;$('saveState').className=`save-state ${status}`;$('saveLabel').textContent=label}
       function reportSaveError(error){console.error('Falha ao salvar o tabuleiro:',error);setSaveStatus('error','falha ao salvar');toast(error?.name==='QuotaExceededError'?'Falha ao salvar. Verifique o espaço disponível no navegador.':'Falha ao acessar o armazenamento do navegador. Seus dados não foram confirmados como salvos.')}
       function pushHistory(){const current=snapshot();if(state.history[state.history.length-1]!==current)state.history.push(current);if(state.history.length>60)state.history.shift();state.future=[];updateHistoryButtons()}
-      function restore(data){const obj=typeof data==='string'?JSON.parse(data):data;state.nodes=obj.nodes||[];state.nextId=obj.nextId||state.nodes.reduce((n,x)=>Math.max(n,x.id+1),1);state.background=obj.background||'';state.tiles=obj.tiles||[];state.tileCells=obj.tileCells||[];state.tileSize=[64,128,256,512].includes(Number(obj.tileSize))?Number(obj.tileSize):256;state.hordeDelay=Number(obj.hordeDelay??30);state.boardTitle=obj.boardTitle||'Novo tabuleiro';state.origin=null;state.selected=null;state.pawn=null;render();scheduleSave()}
+      function restore(data,save=true){const obj=typeof data==='string'?JSON.parse(data):data;state.nodes=obj.nodes||[];state.nextId=obj.nextId||state.nodes.reduce((n,x)=>Math.max(n,x.id+1),1);state.background=obj.background||'';state.tiles=obj.tiles||[];state.tileCells=obj.tileCells||[];state.tileSize=[64,128,256,512].includes(Number(obj.tileSize))?Number(obj.tileSize):256;state.hordeDelay=Number(obj.hordeDelay??30);state.boardTitle=obj.boardTitle||'Novo tabuleiro';state.origin=null;state.selected=null;if(save&&state.isEditor){render();scheduleSave()}else render()}
       function updateHistoryButtons(){$('undoBtn').disabled=!state.history.length;$('redoBtn').disabled=!state.future.length;$('deleteBtn').disabled=state.selected==null}
       function undo(){if(!state.history.length)return;state.future.push(snapshot());restore(state.history.pop());updateHistoryButtons()}
       function redo(){if(!state.future.length)return;state.history.push(snapshot());restore(state.future.pop());updateHistoryButtons()}
+      async function workspaceDocument(){
+        const active=JSON.parse(await storageGet(STORAGE_KEY)||snapshot());
+        return{active,savedBoards:await savedBoards()};
+      }
+      async function fetchWorkspace(){
+        const response=await cloudRequest('/rest/v1/board_workspace?select=id,document,updated_at&id=eq.1');
+        return response.json();
+      }
+      async function applyWorkspace(row){
+        const document=row.document;
+        if(!document||!document.active||!Array.isArray(document.savedBoards))throw cloudFailure('O rascunho remoto está em um formato inválido.');
+        pendingWorkspaceConflict=null;
+        setWorkspaceRevision(row.updated_at);
+        await storageSet(STORAGE_KEY,JSON.stringify(document.active));
+        await storageSet(SAVED_KEY,JSON.stringify(document.savedBoards));
+        restore(document.active,false);
+        setCloudPending(false);
+        state.history=[];state.future=[];updateHistoryButtons();
+      }
+      async function syncWorkspace(){
+        if(!state.isEditor)return;
+        if(!navigator.onLine)throw cloudFailure('Sem internet. O rascunho foi salvo localmente e aguarda sincronização.');
+        const document=await workspaceDocument(),updatedAt=new Date().toISOString();
+        const body=JSON.stringify({id:1,document,updated_at:updatedAt});
+        let response,rows;
+        if(cloudWorkspaceUpdatedAt){
+          response=await cloudRequest(`/rest/v1/board_workspace?id=eq.1&updated_at=eq.${encodeURIComponent(cloudWorkspaceUpdatedAt)}`,{method:'PATCH',headers:{'Content-Type':'application/json',Prefer:'return=representation'},body});
+          rows=await response.json();
+          if(!rows.length){const error=cloudFailure('O rascunho foi alterado em outro aparelho. Use Sincronizar para comparar antes de continuar.',409);error.conflict=true;throw error}
+        }else{
+          response=await cloudRequest('/rest/v1/board_workspace',{method:'POST',headers:{'Content-Type':'application/json',Prefer:'return=representation'},body});
+          rows=await response.json();
+          if(!rows.length)throw cloudFailure('O Supabase não confirmou o salvamento do rascunho.');
+        }
+        setWorkspaceRevision(rows[0].updated_at);
+        setCloudPending(false);
+      }
       async function persistSnapshot(){
         const data=snapshot();
         await storageSet(STORAGE_KEY,data);
@@ -183,14 +276,22 @@
           await storageSet(SAVED_KEY,JSON.stringify(boards));
         }
         state.dirty=false;
-        setSaveStatus('saved','salvo');
+        if(state.isEditor){
+          try{await syncWorkspace();setCloudPending(false);setSaveStatus('saved','sincronizado')}
+          catch(error){setCloudPending(true);console.error('Falha ao sincronizar o rascunho:',error);setSaveStatus(error.conflict?'error':'saved',error.conflict?'conflito na nuvem':'salvo local · pendente');if(error.conflict||navigator.onLine)toast(error.message)}
+        }else setSaveStatus('saved','salvo');
       }
-      function scheduleSave(){state.dirty=true;setSaveStatus('saving','salvando');clearTimeout(state.autosave);state.autosave=setTimeout(()=>{state.autosave=null;persistSnapshot().catch(reportSaveError)},1500)}
+      function scheduleSave(){
+        if(state.mode==='game'&&!state.isEditor){scheduleGameProgressSave();return}
+        if(!state.isEditor)return;
+        state.dirty=true;setSaveStatus('saving','salvando');clearTimeout(state.autosave);state.autosave=setTimeout(()=>{state.autosave=null;persistSnapshot().catch(reportSaveError)},1500)
+      }
+      function saveSavedBoards(boards){return storageSet(SAVED_KEY,JSON.stringify(boards))}
       function toast(text){const el=$('toast');el.textContent=text;el.classList.add('show');clearTimeout(toast.timer);toast.timer=setTimeout(()=>el.classList.remove('show'),2300)}
       function findNode(id){return state.nodes.find(n=>n.id===Number(id))}
       function render(){
-        world.style.transform=`translate(${state.pan.x}px,${state.pan.y}px) scale(${state.zoom})`;$('boardName').textContent=state.boardTitle;$('mapBg').style.backgroundImage=state.background?`url("${state.background}")`:'';area.classList.toggle('editor-grid',state.mode==='editor');renderTiles();$('hordeDelay').value=state.hordeDelay;
-        const nodesEl=$('nodes');nodesEl.replaceChildren();$('edges').replaceChildren();$('emptyNote').hidden=state.nodes.length>0;
+        world.style.transform=`translate(${state.pan.x}px,${state.pan.y}px) scale(${state.zoom})`;$('boardName').textContent=state.isEditor||state.hasPublishedBoard?state.boardTitle:'Nenhum publicado';$('mapBg').style.backgroundImage=state.background?`url("${state.background}")`:'';area.classList.toggle('editor-grid',state.mode==='editor');renderTiles();$('hordeDelay').value=state.hordeDelay;
+        const nodesEl=$('nodes');nodesEl.replaceChildren();$('edges').replaceChildren();$('emptyNote').hidden=state.nodes.length>0;$('emptyTitle').textContent=state.isEditor?'Desenhe seu percurso':'Nenhum tabuleiro publicado';$('emptyDescription').textContent=state.isEditor?'Clique no tabuleiro para criar o primeiro nó':'Volte mais tarde ou fale com o administrador do jogo.';
         state.nodes.forEach(node=>{(node.edges||[]).forEach(target=>{const dest=findNode(target);if(!dest)return;const line=document.createElementNS('http://www.w3.org/2000/svg','line');line.setAttribute('x1',node.x);line.setAttribute('y1',node.y);line.setAttribute('x2',dest.x);line.setAttribute('y2',dest.y);line.setAttribute('class',`edge ${state.origin===node.id?'selected':''} ${state.moveTarget?.path?.includes(node.id)&&state.moveTarget?.path?.includes(dest.id)?'reachable-forward':''}`);$('edges').append(line)})});
         state.nodes.forEach(node=>{const el=document.createElement('button');el.className='node';el.dataset.id=node.id;el.textContent=node.label||node.id;el.style.left=node.x+'px';el.style.top=node.y+'px';el.style.zIndex=String(1000+Math.round(node.y));el.title=`Nó ${node.label||node.id}`;if(state.origin===node.id)el.classList.add('origin');if(state.selected===node.id)el.classList.add('start');if(node.challenge?.type&&node.challenge.type!=='none')el.classList.add('challenge');if(node.horde)el.classList.add('horde-house');if(node.blocked)el.classList.add('blocked');if(node.hiddenShortcut)el.classList.add('hidden-route');if(state.mode==='game'&&state.moveTarget){const kind=state.moveTarget.reachable.get(node.id);if(kind)el.classList.add(kind);else if(node.id!==state.pawn)el.classList.add('out-of-range')}if(state.mode==='game'&&state.pawn===node.id)el.classList.add('pawn');if(state.horde===node.id)el.classList.add('horde');if(state.miniHordes.includes(node.id))el.classList.add('mini-horde');nodesEl.append(el)});
         $('phaseTag').textContent=state.mode==='editor'?(state.origin?'EDITOR · escolha um nó de destino':'EDITOR · percurso livre'):'JOGO · '+(state.dice?'escolha um dado e avance':'aguardando os dados');$('boardHint').textContent=state.mode==='editor'?'Clique para criar · selecione um nó e outro para conectar':'Selecione uma casa iluminada para mover';
@@ -332,21 +433,22 @@
       function fit(){if(!state.nodes.length){state.zoom=.75;state.pan={x:120,y:80};render();return}const xs=state.nodes.map(n=>n.x),ys=state.nodes.map(n=>n.y),minX=Math.min(...xs)-70,maxX=Math.max(...xs)+70,minY=Math.min(...ys)-70,maxY=Math.max(...ys)+70,rect=area.getBoundingClientRect();state.zoom=Math.max(.25,Math.min(1.35,Math.min(rect.width/(maxX-minX),rect.height/(maxY-minY))));state.pan.x=(rect.width-(maxX-minX)*state.zoom)/2-minX*state.zoom;state.pan.y=(rect.height-(maxY-minY)*state.zoom)/2-minY*state.zoom;render()}
       function neighbors(id,reverse=false){const node=findNode(id);if(!node)return[];return reverse?state.nodes.filter(n=>(n.edges||[]).includes(id)).map(n=>n.id):node.edges||[]}
       function bfs(start,reverse=false){const distance=new Map([[start,0]]),previous=new Map(),queue=[start];while(queue.length){const id=queue.shift();for(const next of neighbors(id,reverse)){if(distance.has(next))continue;distance.set(next,distance.get(id)+1);previous.set(next,id);queue.push(next)}}return{distance,previous}}
-      function startGame(){if(!state.nodes.length){toast('Crie pelo menos um nó primeiro');return}state.mode='game';state.origin=null;state.pawn=state.nodes.slice().sort((a,b)=>a.id-b.id)[0].id;state.health=100;state.keys=0;state.faith=0;state.sword=0;state.shoes=0;state.wait=0;state.horde=null;state.miniHordes=[];state.dice=null;state.used=[];state.moveTarget=null;clearTimeout(state.hordeTimer);clearInterval(state.hordeInterval);state.hordeTimer=setTimeout(spawnHorde,Math.max(0,state.hordeDelay)*1000);$('gameLog').textContent='A horda ainda não entrou no tabuleiro.';render();fit()}
+      function startGame(){if(!state.nodes.length){toast('Crie pelo menos um nó primeiro');return}state.mode='game';state.origin=null;state.pawn=state.nodes.slice().sort((a,b)=>a.id-b.id)[0].id;state.health=100;state.keys=0;state.faith=0;state.sword=0;state.shoes=0;state.wait=0;state.horde=null;state.miniHordes=[];state.openedBlocks=[];state.dice=null;state.used=[];state.moveTarget=null;clearTimeout(state.hordeTimer);clearInterval(state.hordeInterval);state.hordeTimer=setTimeout(spawnHorde,Math.max(0,state.hordeDelay)*1000);$('gameLog').textContent='A horda ainda não entrou no tabuleiro.';render();fit();scheduleGameProgressSave()}
       function stopGame(){state.mode='editor';clearTimeout(state.hordeTimer);clearInterval(state.hordeInterval);state.dice=null;state.moveTarget=null;state.used=[];render()}
-      function rollDice(){if(state.wait>0){state.wait--;toast(`Turno de espera: restam ${state.wait}`);advanceHordes();render();return}if(state.horde==null&&state.hordeTimer==null)state.hordeTimer=setTimeout(spawnHorde,Math.max(0,state.hordeDelay)*1000);state.dice=[1+Math.floor(Math.random()*6),1+Math.floor(Math.random()*6)];state.used=[];state.chosenDie=0;state.moveTarget=null;render()}
-      function selectDie(index){if(!state.dice||state.used.includes(index))return;state.chosenDie=index;state.moveTarget=getReachable(state.dice[index]);render()}
+      function rollDice(){if(state.wait>0){state.wait--;toast(`Turno de espera: restam ${state.wait}`);advanceHordes();render();scheduleGameProgressSave();return}if(state.horde==null&&state.hordeTimer==null)state.hordeTimer=setTimeout(spawnHorde,Math.max(0,state.hordeDelay)*1000);state.dice=[1+Math.floor(Math.random()*6),1+Math.floor(Math.random()*6)];state.used=[];state.chosenDie=0;state.moveTarget=null;render();scheduleGameProgressSave()}
+      function selectDie(index){if(!state.dice||state.used.includes(index))return;state.chosenDie=index;state.moveTarget=getReachable(state.dice[index]);render();scheduleGameProgressSave()}
       function getReachable(steps){const forward=bfs(state.pawn),back=bfs(state.pawn,true),reachable=new Map(),parents=new Map();for(const [id,d]of forward.distance)if(d===steps){reachable.set(id,'forward');parents.set(id,{map:forward.previous,reverse:false})}for(const [id,d]of back.distance)if(d===steps&&!reachable.has(id)){reachable.set(id,'backward');parents.set(id,{map:back.previous,reverse:true})}return{reachable,parents,steps}}
       function pathTo(target,entry){const path=[target];let cursor=target;while(cursor!==state.pawn){const prev=entry.map.get(cursor);if(prev==null)break;path.unshift(prev);cursor=prev}return path}
-      function handleGameNode(id){if(id===state.pawn)return;const node=findNode(id);if(node.blocked){const keyNeed=Number(node.challenge?.keyRequired)||1;if(state.keys>=keyNeed){state.keys-=keyNeed;node.blocked=false;pushHistory();scheduleSave();toast('Chave usada. A casa está aberta.')}else{toast(`Chave faltando: precisa de ${keyNeed}`);return}}if(node.hiddenShortcut&&(state.shoes||0)<(Number(node.challenge?.shortcutLevel)||1)){toast(`Atalho exige calçado nível ${node.challenge?.shortcutLevel||1}`);return}const target=state.moveTarget?.reachable.get(id);if(target){const dialogNeeded=node.challenge?.type&&node.challenge.type!=='none';if(dialogNeeded){state.pendingMove=id;openChallengePreview(node,target);return}confirmMove(id)}else{state.selected=id;state.origin=null;render();if(node.challenge?.type&&node.challenge.type!=='none')openChallengePreview(node,'inspect')}}
+      function handleGameNode(id){if(id===state.pawn)return;const node=findNode(id);if(node.blocked){const keyNeed=Number(node.challenge?.keyRequired)||1;if(state.keys>=keyNeed){state.keys-=keyNeed;node.blocked=false;if(!state.openedBlocks.includes(id))state.openedBlocks.push(id);pushHistory();scheduleGameProgressSave();toast('Chave usada. A casa está aberta.')}else{toast(`Chave faltando: precisa de ${keyNeed}`);return}}if(node.hiddenShortcut&&(state.shoes||0)<(Number(node.challenge?.shortcutLevel)||1)){toast(`Atalho exige calçado nível ${node.challenge?.shortcutLevel||1}`);return}const target=state.moveTarget?.reachable.get(id);if(target){const dialogNeeded=node.challenge?.type&&node.challenge.type!=='none';if(dialogNeeded){state.pendingMove=id;openChallengePreview(node,target);return}confirmMove(id)}else{state.selected=id;state.origin=null;render();if(node.challenge?.type&&node.challenge.type!=='none')openChallengePreview(node,'inspect')}}
       function openChallengePreview(node,kind){const c=node.challenge||{};$('modalTitle').textContent=c.title||({event:'Evento',wait:'Espera',block:'Bloqueio',ambush:'Emboscada',supplies:'Suprimentos'}[c.type]||'Desafio');$('modalSub').textContent=`Nó ${node.label||node.id} · ${kind==='inspect'?'fora do alcance':'casa alcançável'}`;$('modalBody').innerHTML=`${c.image?`<img class="preview-image" src="${c.image}" alt="Imagem do desafio">`:''}<div class="preview-copy">${escapeHtml(c.text||'Sem descrição.')}</div>${node.blocked?`<p class="status-message">Casa bloqueada · chave exigida: ${c.keyRequired||1}</p>`:''}`;$('modalFoot').replaceChildren();const cancel=document.createElement('button');cancel.className='quiet-btn';cancel.textContent='Fechar';cancel.onclick=()=>{$('modal').close();state.pendingMove=null};$('modalFoot').append(cancel);if(kind!=='inspect'){const confirm=document.createElement('button');confirm.className='quiet-btn primary';confirm.textContent='Confirmar movimento';confirm.onclick=()=>{$('modal').close();confirmMove(node.id)};$('modalFoot').append(confirm)}$('modal').showModal()}
-      function confirmMove(id){const dieIndex=state.chosenDie;state.pawn=id;state.used.push(dieIndex);state.moveTarget=null;state.pendingMove=null;resolveChallenge(findNode(id));if(state.used.length===2){state.faith+=25;state.sword+=25;state.shoes+=25;state.dice=null;state.used=[];state.chosenDie=0;state.moveTarget=null;toast('Turno encerrado · +25 em cada especial')}else{const next=state.used.includes(0)?1:0;state.chosenDie=next;state.moveTarget=getReachable(state.dice[next])}advanceHordes();render();fit()}
+      function confirmMove(id){const dieIndex=state.chosenDie;state.pawn=id;state.used.push(dieIndex);state.moveTarget=null;state.pendingMove=null;resolveChallenge(findNode(id));if(state.used.length===2){state.faith+=25;state.sword+=25;state.shoes+=25;state.dice=null;state.used=[];state.chosenDie=0;state.moveTarget=null;toast('Turno encerrado · +25 em cada especial')}else{const next=state.used.includes(0)?1:0;state.chosenDie=next;state.moveTarget=getReachable(state.dice[next])}advanceHordes();render();fit();scheduleGameProgressSave()}
       function resolveChallenge(node){if(!node)return;const c=node.challenge||{},r=c.rewards||{};state.keys+=Number(r.keys)||0;state.wait+=Number(r.wait)||0;state.faith+=Number(r.faith)||0;state.sword+=Number(r.sword)||0;state.shoes+=Number(r.shoes)||0;state.health=Math.max(0,Math.min(100,state.health-(Number(r.damage)||0)));if(c.type==='ambush'){state.miniHordes.push(node.id);if(state.horde!=null){state.horde=stepToward(state.horde,state.pawn,2);$('gameLog').textContent='Emboscada! A horda principal foi empurrada.'}}if(c.type==='wait'&&!r.wait)state.wait+=1;if(c.type==='supplies'&&!r.keys&&!r.faith&&!r.sword&&!r.shoes){state.health=Math.min(100,state.health+15)}if(c.type==='block'&&node.blocked)state.blocked=true;if(state.health<=0){$('gameLog').textContent='Sem vida. Reinicie a partida para tentar novamente.';toast('A partida terminou. Sua vida chegou a zero.')}else if(!node.challenge?.type||node.challenge.type==='none')$('gameLog').textContent=`Você chegou ao nó ${node.label||node.id}.`}
       function stepToward(from,to,count=1){let current=from;for(let i=0;i<count;i++){const f=bfs(current),b=bfs(current,true);const forward=f.distance.get(to),back=b.distance.get(to);if(forward==null&&back==null)break;let prev;if(forward!=null&&(back==null||forward<=back)){let cursor=to;while(f.previous.get(cursor)!==current&&f.previous.has(cursor))cursor=f.previous.get(cursor);prev=cursor}else{let cursor=to;while(b.previous.get(cursor)!==current&&b.previous.has(cursor))cursor=b.previous.get(cursor);prev=cursor}if(prev==null||prev===current)break;current=prev}return current}
-      function spawnHorde(){state.hordeTimer=null;if(state.mode!=='game'||state.health<=0)return;const starts=state.nodes.filter(n=>n.horde);state.horde=(starts[0]||state.nodes[state.nodes.length-1]).id;$('gameLog').textContent='A horda entrou no tabuleiro.';render();state.hordeInterval=setInterval(()=>{if(state.mode!=='game'||state.horde==null){clearInterval(state.hordeInterval);return}state.horde=stepToward(state.horde,state.pawn);if(state.horde===state.pawn)damagePlayer(25);for(let i=0;i<state.miniHordes.length;i++){const next=stepToward(state.miniHordes[i],state.pawn);state.miniHordes[i]=next;if(next===state.pawn){damagePlayer(10);state.miniHordes.splice(i,1);i--}}render()},4000)}
+      function startHordeInterval(){clearInterval(state.hordeInterval);state.hordeInterval=setInterval(()=>{if(state.mode!=='game'||state.horde==null){clearInterval(state.hordeInterval);return}state.horde=stepToward(state.horde,state.pawn);if(state.horde===state.pawn)damagePlayer(25);for(let i=0;i<state.miniHordes.length;i++){const next=stepToward(state.miniHordes[i],state.pawn);state.miniHordes[i]=next;if(next===state.pawn){damagePlayer(10);state.miniHordes.splice(i,1);i--}}render();scheduleGameProgressSave()},4000)}
+      function spawnHorde(){state.hordeTimer=null;if(state.mode!=='game'||state.health<=0)return;const starts=state.nodes.filter(n=>n.horde);state.horde=(starts[0]||state.nodes[state.nodes.length-1]).id;$('gameLog').textContent='A horda entrou no tabuleiro.';render();startHordeInterval();scheduleGameProgressSave()}
       function advanceHordes(){if(state.horde===state.pawn)damagePlayer(25);state.miniHordes.forEach(id=>{if(id===state.pawn)damagePlayer(10)});render()}
       function damagePlayer(amount){if(state.faith>=25){state.faith-=25;$('gameLog').textContent='O escudo de fé absorveu o ataque.'}else{state.health=Math.max(0,state.health-amount);$('gameLog').textContent=`A horda alcançou você: −${amount} de vida.`}if(state.health===0){clearInterval(state.hordeInterval);toast('A partida terminou. Sua vida chegou a zero.')}}
-      function activateSpecial(type){if(state.mode!=='game')return;const key={faith:'faith',sword:'sword',shoes:'shoes'}[type];if(state[key]<100){toast('Especial disponível ao chegar a 100');return}state[key]-=100;if(type==='faith'){state.health=Math.min(100,state.health+25);toast('Fé ativada: +25 de vida')}if(type==='sword'){if(state.horde!=null)state.horde=stepToward(state.horde,state.pawn,2);toast('Espada ativada: horda recuada')}if(type==='shoes'){state.shoes+=1;toast('Calçado ativado: nível aumentado')}render()}
+      function activateSpecial(type){if(state.mode!=='game')return;const key={faith:'faith',sword:'sword',shoes:'shoes'}[type];if(state[key]<100){toast('Especial disponível ao chegar a 100');return}state[key]-=100;if(type==='faith'){state.health=Math.min(100,state.health+25);toast('Fé ativada: +25 de vida')}if(type==='sword'){if(state.horde!=null)state.horde=stepToward(state.horde,state.pawn,2);toast('Espada ativada: horda recuada')}if(type==='shoes'){state.shoes+=1;toast('Calçado ativado: nível aumentado')}render();scheduleGameProgressSave()}
       function readFile(file){return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=reject;reader.readAsDataURL(file)})}
       function imageSize(source){return new Promise(resolve=>{const image=new Image();image.onload=()=>resolve({width:image.naturalWidth,height:image.naturalHeight});image.onerror=()=>resolve({width:state.tileSize,height:state.tileSize});image.src=source})}
       function showModal(title,sub,body,actions=[]){$('modalTitle').textContent=title;$('modalSub').textContent=sub||'';$('modalBody').innerHTML=body;$('modalFoot').replaceChildren();actions.forEach(({label,primary,run})=>{const b=document.createElement('button');b.className=`quiet-btn ${primary?'primary':''}`;b.textContent=label;b.onclick=run;$('modalFoot').append(b)});if(!$('modal').open)$('modal').showModal()}
@@ -373,13 +475,195 @@
         area.classList.toggle('tile-painting',state.tool==='tile');
       }
       async function savedBoards(){const raw=await storageGet(SAVED_KEY);if(!raw)return[];const boards=JSON.parse(raw);if(!Array.isArray(boards))throw new Error('A lista de tabuleiros salvos está inválida.');return boards}
+      async function verifyEditorAccess(){
+        const response=await cloudRequest('/rest/v1/rpc/is_board_editor',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+        return response.json();
+      }
+      async function loadEditorWorkspace(){
+        let rows=await fetchWorkspace();
+        if(rows.length){
+          const localRevision=localStorage.getItem(WORKSPACE_REVISION_KEY)||null;
+          const localActive=await storageGet(STORAGE_KEY),localBoards=await savedBoards();
+          const localData=localActive?JSON.parse(localActive):null;
+          const hasLocalDraft=!!(localBoards.length||localData?.nodes?.length);
+          if(hasLocalDraft&&localRevision!==rows[0].updated_at){
+            pendingWorkspaceConflict=rows[0];setCloudPending(true);return;
+          }
+          await applyWorkspace(rows[0]);return;
+        }
+        const document=await workspaceDocument(),body=JSON.stringify({id:1,document});
+        try{
+          const response=await cloudRequest('/rest/v1/board_workspace',{method:'POST',headers:{'Content-Type':'application/json',Prefer:'return=representation'},body});
+          rows=await response.json();
+          if(!rows.length)throw cloudFailure('O Supabase não confirmou a criação do rascunho.');
+          setWorkspaceRevision(rows[0].updated_at);setCloudPending(false);
+        }catch(error){
+          if(error.status!==409)throw error;
+          rows=await fetchWorkspace();
+          if(!rows.length)throw error;
+          pendingWorkspaceConflict=rows[0];setCloudPending(true);
+        }
+      }
+      async function enterEditor(session){
+        cloudSession=session||cloudSession||readCloudSession();
+        if(!cloudSession)throw cloudFailure('Entre com o e-mail e a senha do editor.',401);
+        const authorized=await verifyEditorAccess();
+        if(authorized!==true){writeCloudSession(null);throw cloudFailure('Esta conta não tem acesso de editor. Peça ao administrador para autorizá-la.',403)}
+        resetGameState();
+        state.isEditor=true;state.mode='editor';
+        document.body.classList.remove('player-mode');document.body.classList.add('editor-mode');
+        try{localStorage.setItem(EDITOR_CACHE_KEY,'true')}catch{}
+        const hasPendingChanges=state.cloudPending||localStorage.getItem(CLOUD_PENDING_KEY)==='true';
+        try{
+          if(hasPendingChanges){setCloudPending(true);cloudWorkspaceUpdatedAt=localStorage.getItem(WORKSPACE_REVISION_KEY)||null;if(!await restoreLocalWorkspace())await loadEditorWorkspace()}
+          else await loadEditorWorkspace();
+        }
+        catch(error){state.isEditor=false;state.mode='game';document.body.classList.remove('editor-mode');document.body.classList.add('player-mode');render();throw error}
+        $('publishBtn').disabled=false;
+        render();
+        return hasPendingChanges||!!pendingWorkspaceConflict;
+      }
+      function openEditorLogin(){
+        if(!isSupabaseConfigured()){toast('Antes, configure a URL e a chave pública em supabase-config.js.');return}
+        const html='<form id="editorLoginForm"><div class="field"><label for="editorEmail">E-mail do editor</label><input id="editorEmail" type="email" autocomplete="username" required></div><div class="field"><label for="editorPassword">Senha</label><input id="editorPassword" type="password" autocomplete="current-password" required></div><p class="status-message">A conta precisa estar autorizada como editora no Supabase.</p></form>';
+        showModal('Acesso do editor','Entre com sua conta administrativa',html,[{label:'Entrar',primary:true,run:async()=>{
+          const email=$('editorEmail').value.trim(),password=$('editorPassword').value;
+          if(!email||!password){toast('Informe e-mail e senha.');return}
+          try{
+            const response=await fetch(`${supabaseUrl}/auth/v1/token?grant_type=password`,{method:'POST',headers:{apikey:supabaseAnonKey,'Content-Type':'application/json'},body:JSON.stringify({email,password})});
+            if(!response.ok){let message='Não foi possível entrar.';try{const detail=await response.json();message=detail.msg||detail.message||detail.error_description||message}catch{}throw cloudFailure(message,response.status)}
+            const session=await response.json();session.expires_at=Date.now()+Number(session.expires_in||3600)*1000;writeCloudSession(session);
+            const hasPendingChanges=await enterEditor(session);$('modal').close();
+            if(pendingWorkspaceConflict){const remoteRow=pendingWorkspaceConflict;pendingWorkspaceConflict=null;resolveWorkspaceConflict(remoteRow)}
+            else if(hasPendingChanges)await syncEditorNow();
+            else toast('Acesso do editor ativado');
+          }catch(error){console.error('Falha no acesso do editor:',error);toast(error.message)}
+        }},{label:'Cancelar',run:()=>$('modal').close()}]);
+        $('editorLoginForm').addEventListener('submit',event=>{event.preventDefault();$('modalFoot').querySelector('.primary').click()});
+      }
+      function resetGameState(){
+        clearTimeout(state.hordeTimer);clearInterval(state.hordeInterval);
+        state.hordeTimer=null;state.hordeInterval=null;state.pawn=null;state.health=100;
+        state.keys=0;state.faith=0;state.sword=0;state.shoes=0;state.wait=0;
+        state.horde=null;state.miniHordes=[];state.openedBlocks=[];state.dice=null;
+        state.used=[];state.chosenDie=0;state.moveTarget=null;state.gameProgressKey=null;
+      }
+      async function loadPublishedBoard(){
+        let row=null;
+        if(isSupabaseConfigured()&&navigator.onLine){
+          try{
+            const response=await cloudRequest('/rest/v1/published_board?select=id,title,content,updated_at&id=eq.1',{},false);
+            const rows=await response.json();row=rows[0]||null;
+            if(row)await storageSet(PUBLISHED_CACHE_KEY,JSON.stringify(row));
+          }catch(error){console.warn('Não foi possível carregar o tabuleiro publicado; usando a cópia local:',error)}
+        }
+        if(!row){const cached=await storageGet(PUBLISHED_CACHE_KEY);if(cached)row=JSON.parse(cached)}
+        resetGameState();
+        if(!row){state.hasPublishedBoard=false;restore({nodes:[],nextId:1,boardTitle:'Novo tabuleiro'},false);state.boardTitle='Novo tabuleiro';render();return false}
+        state.hasPublishedBoard=true;
+        publishedUpdatedAt=row.updated_at||null;
+        state.boardTitle=row.title||'Tabuleiro publicado';
+        restore(row.content,false);state.boardTitle=row.title||'Tabuleiro publicado';
+        state.gameProgressKey=`${GAME_PROGRESS_KEY}:${row.updated_at||'local'}`;
+        const resumed=await restoreGameProgress();
+        if(!resumed)startGame();
+        render();
+        return true;
+      }
+      async function publishCurrentBoard(){
+        if(!state.isEditor){toast('Somente o editor pode publicar.');return}
+        try{
+          if(state.dirty)await persistSnapshot();
+          await syncWorkspace();
+          const body=JSON.stringify({id:1,title:state.boardTitle,content:JSON.parse(snapshot()),updated_at:new Date().toISOString()});
+          let response,rows;
+          if(publishedUpdatedAt){
+            response=await cloudRequest(`/rest/v1/published_board?id=eq.1&updated_at=eq.${encodeURIComponent(publishedUpdatedAt)}`,{method:'PATCH',headers:{'Content-Type':'application/json',Prefer:'return=representation'},body});
+            rows=await response.json();
+            if(!rows.length)throw cloudFailure('A versão publicada mudou em outro aparelho. Sincronize e tente publicar de novo.',409);
+          }else{
+            response=await cloudRequest('/rest/v1/published_board',{method:'POST',headers:{'Content-Type':'application/json',Prefer:'return=representation'},body});
+            rows=await response.json();
+            if(!rows.length)throw cloudFailure('O Supabase não confirmou a publicação.');
+          }
+          publishedUpdatedAt=rows[0].updated_at;
+          state.hasPublishedBoard=true;
+          await storageSet(PUBLISHED_CACHE_KEY,JSON.stringify(rows[0]));
+          toast('Tabuleiro publicado para os jogadores');
+        }catch(error){console.error('Falha ao publicar o tabuleiro:',error);toast(error.message)}
+      }
+      async function syncEditorNow(){
+        if(!state.isEditor)return;
+        try{
+          if(state.dirty)await persistSnapshot();
+          const rows=await fetchWorkspace();
+          if(!rows.length){await syncWorkspace();setCloudPending(false);toast('Rascunho sincronizado');return}
+          if(rows[0].updated_at!==cloudWorkspaceUpdatedAt){
+            resolveWorkspaceConflict(rows[0]);return;
+          }
+          if(state.cloudPending){await syncWorkspace();setCloudPending(false)}
+          toast('Rascunho sincronizado');
+        }catch(error){console.error('Falha ao sincronizar manualmente:',error);toast(error.message)}
+      }
+      function resolveWorkspaceConflict(remoteRow){
+        const html='<p class="preview-copy">Outro aparelho salvou uma versão diferente. Escolha qual cópia manter. A nuvem só será sobrescrita após sua confirmação.</p>';
+        showModal('Conflito de sincronização','Seu rascunho local continua salvo neste aparelho.',html,[
+          {label:'Carregar da nuvem',run:async()=>{try{await applyWorkspace(remoteRow);state.dirty=false;$('modal').close();toast('Rascunho atualizado da nuvem')}catch(error){console.error('Falha ao carregar o rascunho remoto:',error);toast(error.message)}}},
+          {label:'Manter minha versão',primary:true,run:async()=>{try{setWorkspaceRevision(remoteRow.updated_at);await syncWorkspace();setCloudPending(false);state.dirty=false;setSaveStatus('saved','sincronizado');$('modal').close();toast('Sua versão foi sincronizada')}catch(error){console.error('Falha ao resolver o conflito:',error);toast(error.message)}}},
+          {label:'Cancelar',run:()=>$('modal').close()}
+        ]);
+      }
+      async function logoutEditor(){
+        if(state.dirty)await persistSnapshot();
+        if(state.cloudPending&&!window.confirm('O rascunho ainda não foi sincronizado e ficará guardado apenas neste aparelho até você entrar novamente. Deseja sair mesmo assim?'))return;
+        if(cloudSession?.access_token&&isSupabaseConfigured()){
+          try{await cloudRequest('/auth/v1/logout',{method:'POST'},true)}catch(error){console.warn('A sessão local foi encerrada, mas o servidor não confirmou a saída:',error)}
+        }
+        writeCloudSession(null);state.isEditor=false;state.mode='game';if(!state.cloudPending)setWorkspaceRevision(null);
+        document.body.classList.remove('editor-mode');document.body.classList.add('player-mode');
+        await loadPublishedBoard();
+      }
+      async function restoreLocalWorkspace(){
+        const active=await storageGet(STORAGE_KEY);if(!active)return false;
+        resetGameState();state.mode='editor';restore(active,false);
+        state.history=[];state.future=[];updateHistoryButtons();
+        return true;
+      }
+      function gameProgressSnapshot(){
+        return{pawn:state.pawn,health:state.health,keys:state.keys,faith:state.faith,sword:state.sword,shoes:state.shoes,wait:state.wait,horde:state.horde,miniHordes:state.miniHordes,openedBlocks:state.openedBlocks,dice:state.dice,used:state.used,chosenDie:state.chosenDie};
+      }
+      function scheduleGameProgressSave(){
+        if(state.isEditor||!state.gameProgressKey)return;
+        clearTimeout(state.gameAutosave);
+        state.gameAutosave=setTimeout(()=>storageSet(state.gameProgressKey,JSON.stringify(gameProgressSnapshot())).catch(error=>{console.error('Falha ao salvar o progresso local:',error);toast('Não foi possível salvar seu progresso neste aparelho.')}),300);
+      }
+      async function persistGameProgress(){
+        if(!state.isEditor&&state.gameProgressKey)await storageSet(state.gameProgressKey,JSON.stringify(gameProgressSnapshot()));
+      }
+      async function restoreGameProgress(){
+        if(!state.gameProgressKey)return false;
+        const raw=await storageGet(state.gameProgressKey);if(!raw)return false;
+        let progress;
+        try{progress=JSON.parse(raw)}catch(error){console.error('O progresso local está inválido:',error);return false}
+        if(!progress||!Number.isFinite(progress.pawn)||!findNode(progress.pawn))return false;
+        for(const key of ['pawn','health','keys','faith','sword','shoes','wait','horde','dice','used','chosenDie'])if(progress[key]!==undefined)state[key]=progress[key];
+        state.miniHordes=Array.isArray(progress.miniHordes)?progress.miniHordes:[];
+        state.openedBlocks=Array.isArray(progress.openedBlocks)?progress.openedBlocks:[];
+        state.openedBlocks.forEach(id=>{const node=findNode(id);if(node)node.blocked=false});
+        state.mode='game';
+        if(state.dice?.length)state.moveTarget=getReachable(state.dice[state.chosenDie]||state.dice[0]);
+        if(state.horde==null)state.hordeTimer=setTimeout(spawnHorde,Math.max(0,state.hordeDelay)*1000);
+        else startHordeInterval();
+        return true;
+      }
       async function openSaved(){
+        if(!state.isEditor){toast('Somente o editor pode abrir seus tabuleiros salvos.');return}
         let boards;
         try{boards=await savedBoards()}catch(error){reportSaveError(error);showModal('Erro ao carregar tabuleiros','Não foi possível ler os tabuleiros salvos. O conteúdo armazenado foi preservado.','<div class="empty-panel">Verifique o armazenamento deste navegador antes de tentar novamente.</div>',[{label:'Fechar',run:()=>$('modal').close()}]);return}
         let html='<div class="panel-actions"><input id="newBoardName" placeholder="Nome do tabuleiro" class="field" style="margin:0"><button class="quiet-btn primary" id="saveBoardNow">Salvar atual</button></div><div class="section-title">Tabuleiros</div><div class="saved-list">';
         html+=boards.length?boards.map((b,i)=>`<div class="saved-entry"><div><strong>${escapeHtml(b.name)}</strong><small>${new Date(b.updated).toLocaleString('pt-BR')}</small></div><div class="entry-actions"><button class="icon-btn" data-open="${i}" title="Abrir">↗</button><button class="icon-btn" data-history="${i}" title="Histórico">◷</button><button class="icon-btn" data-delete="${i}" title="Excluir">×</button></div></div>`).join(''):'<div class="empty-panel">Nenhum tabuleiro salvo ainda.</div>';
         html+='</div>';
-        showModal('Tabuleiros salvos','Salvos neste aparelho',html,[{label:'Fechar',run:()=>$('modal').close()}]);
+        showModal('Tabuleiros salvos',state.isEditor?'Sincronizados com sua conta de editor':'Salvos neste aparelho',html,[{label:'Fechar',run:()=>$('modal').close()}]);
         $('saveBoardNow').onclick=async()=>{
           const name=$('newBoardName').value.trim()||'Tabuleiro sem nome',previousTitle=state.boardTitle;
           state.boardTitle=name;
@@ -388,7 +672,7 @@
             const list=await savedBoards(),existing=list.find(b=>b.name===name);
             if(existing){existing.backups=existing.backups||[];existing.backups.unshift({data:existing.data,updated:existing.updated});existing.backups=existing.backups.slice(0,5);existing.data=data;existing.updated=new Date().toISOString()}
             else list.unshift({name,data,updated:new Date().toISOString(),backups:[]});
-            await storageSet(SAVED_KEY,JSON.stringify(list));
+            await saveSavedBoards(list);
           }catch(error){state.boardTitle=previousTitle;render();reportSaveError(error);return}
           render();scheduleSave();toast('Tabuleiro salvo');openSaved();
         };
@@ -397,7 +681,7 @@
           catch(error){reportSaveError(error)}
         });
         $('modalBody').querySelectorAll('[data-delete]').forEach(button=>button.onclick=async()=>{
-          try{const list=await savedBoards();list.splice(Number(button.dataset.delete),1);await storageSet(SAVED_KEY,JSON.stringify(list));openSaved()}
+          try{const list=await savedBoards();list.splice(Number(button.dataset.delete),1);await saveSavedBoards(list);scheduleSave();openSaved()}
           catch(error){reportSaveError(error)}
         });
         $('modalBody').querySelectorAll('[data-history]').forEach(button=>button.onclick=()=>showHistory(Number(button.dataset.history)));
@@ -417,7 +701,7 @@
             list[index].backups=list[index].backups.slice(0,5);
             list[index].data=entry.data;
             list[index].updated=new Date().toISOString();
-            await storageSet(SAVED_KEY,JSON.stringify(list));
+            await saveSavedBoards(list);
             restore(entry.data);state.boardTitle=item.name;render();$('modal').close();toast('Backup restaurado');
           }catch(error){reportSaveError(error)}
         });
@@ -427,18 +711,46 @@
       function useExample(){const n=findNode(state.selected);if(!n){toast('Selecione um nó primeiro');return}pushHistory();n.challenge={type:'supplies',title:'Mochila abandonada',text:'Entre os escombros há uma mochila intacta.\nO que sobrou pode fazer diferença.',image:'',keyRequired:0,shortcutLevel:0,rewards:{keys:1,faith:25,sword:0,shoes:0,wait:0,damage:0}};render();scheduleSave();toast('Exemplo aplicado ao nó')}
       function copyModel(){const model={type:'event',title:'',text:'',image:'',keyRequired:0,shortcutLevel:0,rewards:{keys:0,wait:0,faith:0,sword:0,shoes:0,damage:0}};navigator.clipboard?.writeText(JSON.stringify(model,null,2)).then(()=>toast('Modelo JSON copiado')).catch(()=>toast(JSON.stringify(model)))}
       $('editorMode').onclick=stopGame;$('gameMode').onclick=startGame;$('rollBtn').onclick=rollDice;$('die1').onclick=()=>selectDie(0);$('die2').onclick=()=>selectDie(1);$('fitBtn').onclick=fit;$('zoomIn').onclick=()=>{state.zoom=Math.min(2,state.zoom*1.15);render()};$('zoomOut').onclick=()=>{state.zoom=Math.max(.25,state.zoom/1.15);render()};$('undoBtn').onclick=undo;$('redoBtn').onclick=redo;$('deleteBtn').onclick=()=>state.selected!=null&&deleteNode(state.selected);$('savedBtn').onclick=openSaved;$('tilesBtn').onclick=openTiles;$('tilesFile').onchange=async e=>{if(!e.target.files.length)return;pushHistory();for(const file of e.target.files){if(!file.type.includes('png')&&!file.name.toLowerCase().endsWith('.png'))continue;const image=await readFile(file),size=await imageSize(image);state.tiles.push({id:`tile-${Date.now()}-${state.tiles.length}-${Math.random().toString(36).slice(2,7)}`,name:file.name,image,...size})}e.target.value='';render();scheduleSave();openTiles()};$('importBtn').onclick=()=>$('importFile').click();$('importFile').onchange=e=>e.target.files[0]&&importBoard(e.target.files[0]);$('exportBtn').onclick=exportBoard;$('exampleBtn').onclick=useExample;$('copyModelBtn').onclick=copyModel;$('challengeTool').onclick=()=>{state.tool=state.tool==='challenge'?'select':'challenge';syncToolButtons()};$('hordeTool').onclick=()=>{state.tool=state.tool==='horde'?'select':'horde';syncToolButtons()};$('tileTool').onclick=()=>{state.tool=state.tool==='tile'?'select':'tile';syncToolButtons()};$('selectTool').onclick=()=>{state.tool='select';syncToolButtons()};$('hordeDelay').onchange=()=>{state.hordeDelay=Math.max(0,Number($('hordeDelay').value)||0);scheduleSave()};$('panelToggle').onclick=()=>$('workspace').classList.toggle('panel-open');$('shieldSpecial').onclick=()=>activateSpecial('faith');$('swordSpecial').onclick=()=>activateSpecial('sword');$('shoeSpecial').onclick=()=>activateSpecial('shoes');$('restartGame').onclick=startGame;$('modalClose').onclick=()=>$('modal').close();$('modal').addEventListener('click',e=>{if(e.target===$('modal'))$('modal').close()});
+      $('loginBtn').onclick=openEditorLogin;$('publishBtn').onclick=publishCurrentBoard;$('syncBtn').onclick=syncEditorNow;$('logoutBtn').onclick=()=>logoutEditor().catch(error=>{console.error('Falha ao sair do editor:',error);toast('Não foi possível concluir a saída.')});
       $('modal').addEventListener('close',()=>{state.pendingMove=null});window.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();e.shiftKey?redo():undo()}else if(e.key==='Delete'&&state.selected!=null&&state.mode==='editor'&&!['INPUT','TEXTAREA'].includes(document.activeElement.tagName))deleteNode(state.selected);else if(e.key==='Escape'){state.origin=null;render()}});window.addEventListener('resize',()=>{if(state.mode==='game')fit()});
+      async function enableOfflineEditor(){
+        if(!cloudSession||localStorage.getItem(EDITOR_CACHE_KEY)!=='true')return false;
+        const active=await storageGet(STORAGE_KEY);if(!active)return false;
+        resetGameState();
+        state.isEditor=true;state.mode='editor';cloudWorkspaceUpdatedAt=localStorage.getItem(WORKSPACE_REVISION_KEY)||null;
+        document.body.classList.remove('player-mode');document.body.classList.add('editor-mode');
+        restore(active,false);state.history=[];state.future=[];updateHistoryButtons();render();
+        return true;
+      }
       async function startApp(){
         try{
           await initializeStorage();
-          const existing=await storageGet(STORAGE_KEY);
-          if(existing){try{restore(existing)}catch(error){render();reportSaveError(error)}}else render();
+          cloudSession=readCloudSession();
+          cloudWorkspaceUpdatedAt=localStorage.getItem(WORKSPACE_REVISION_KEY)||null;
+          setCloudPending(localStorage.getItem(CLOUD_PENDING_KEY)==='true');
+          await loadPublishedBoard();
+          if(cloudSession){
+            if(navigator.onLine){
+              try{
+                const hasPendingChanges=await enterEditor(cloudSession);
+                if(pendingWorkspaceConflict){const remoteRow=pendingWorkspaceConflict;pendingWorkspaceConflict=null;resolveWorkspaceConflict(remoteRow)}
+                else if(hasPendingChanges)await syncEditorNow();
+              }
+              catch(error){
+                if(error.status===401||error.status===403){writeCloudSession(null);try{localStorage.removeItem(EDITOR_CACHE_KEY)}catch{}}
+                else if(!await enableOfflineEditor())console.warn('Não foi possível restaurar o acesso do editor:',error);
+              }
+            }else await enableOfflineEditor();
+          }
         }catch(error){render();reportSaveError(error)}
         state.history=[];updateHistoryButtons();
         window.addEventListener('pagehide',()=>{
-          if(!state.dirty)return;
-          clearTimeout(state.autosave);state.autosave=null;
-          persistSnapshot().catch(error=>console.error('Falha ao salvar o tabuleiro ao sair:',error));
+          if(state.dirty){clearTimeout(state.autosave);state.autosave=null;persistSnapshot().catch(error=>console.error('Falha ao salvar o tabuleiro ao sair:',error))}
+          clearTimeout(state.gameAutosave);persistGameProgress().catch(error=>console.error('Falha ao salvar o progresso ao sair:',error));
+        });
+        window.addEventListener('online',()=>{
+          if(state.isEditor){verifyEditorAccess().then(authorized=>authorized?syncEditorNow():logoutEditor()).catch(error=>console.error('Falha ao retomar a sincronização:',error))}
+          else loadPublishedBoard().catch(error=>console.error('Falha ao atualizar o tabuleiro publicado:',error));
         });
         if(navigator.storage?.persist)navigator.storage.persist().then(persisted=>{if(!persisted)console.warn('O navegador não confirmou armazenamento persistente para este aparelho.')}).catch(error=>console.error('Não foi possível solicitar armazenamento persistente:',error));
       }

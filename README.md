@@ -23,6 +23,29 @@ Para instalar no celular, publique estes arquivos em um endereço HTTPS e use a 
 
 ## Armazenamento e aparelhos
 
-O autosave, os tabuleiros nomeados, os backups e os assets ficam no armazenamento local do navegador (IndexedDB; versões anteriores são migradas automaticamente). O app solicita ao navegador que preserve esse armazenamento. A disponibilidade depende das políticas do aparelho e do navegador: limpar os dados do site/app ou desinstalá-lo pode apagar os dados.
+O progresso da partida fica no armazenamento local do navegador (IndexedDB) e é separado por versão publicada do tabuleiro. O app solicita ao navegador que preserve esse armazenamento; limpar os dados do site/app ou desinstalá-lo pode apagá-lo.
 
-Os dados são isolados por aparelho e endereço do app. Não há servidor, conta ou sincronização nesta versão; instalar o PWA no celular não transfere os tabuleiros do computador. Para transferir um tabuleiro manualmente, use **Exportar** e depois **Importar** no outro aparelho.
+O rascunho do editor, os tabuleiros nomeados e seus até cinco backups são salvos localmente e sincronizados com o Supabase quando configurado e conectado à internet. O rascunho não é público. Só contas autorizadas como editoras podem carregá-lo ou alterá-lo; a tabela separada de publicação é pública para os jogadores. Alterações simultâneas são detectadas para evitar sobrescrever silenciosamente o trabalho de outro aparelho.
+
+O modo jogador só carrega o tabuleiro publicado. O progresso individual da partida continua local ao aparelho e não é enviado ao Supabase.
+
+### Configurar a sincronização Supabase
+
+O site continua estático e hospedado no GitHub Pages; o Supabase é usado apenas como banco e autenticação. Para ativar:
+
+1. Crie um projeto no Supabase e execute o conteúdo de [supabase-setup.sql](supabase-setup.sql) no SQL Editor do projeto.
+2. Crie sua conta de editor em **Authentication → Users** e copie o UUID dela.
+3. No SQL Editor, autorize apenas essa conta, substituindo o UUID:
+
+   ```sql
+   insert into public.board_editors (user_id)
+   values ('UUID-DA-SUA-CONTA');
+   ```
+
+4. Preencha `url` e `anonKey` em [supabase-config.js](supabase-config.js) com a URL do projeto e sua chave pública (anon/publishable), disponíveis no painel do Supabase. Essa chave pública pode estar no site; as políticas RLS do SQL protegem o rascunho. **Nunca coloque a chave `service_role` no site ou no GitHub.**
+5. Publique a alteração no GitHub Pages. Entre em **Acesso do editor** primeiro no aparelho que contém seus tabuleiros atuais: na primeira sincronização, esse aparelho envia o rascunho e os tabuleiros salvos. Nos outros aparelhos, entre com a mesma conta para carregá-los.
+6. Edite normalmente; o autosave local continua com debounce de 1,5 s e envia o rascunho à nuvem quando conectado. Use **Publicar** para atualizar o tabuleiro que os jogadores veem. O PWA mantém a interface e a última publicação carregada disponíveis offline; entrar pela primeira vez e publicar exigem internet.
+
+Se duas sessões editarem o mesmo rascunho ao mesmo tempo, **Sincronizar** detecta a divergência e permite carregar a cópia da nuvem ou enviar explicitamente a cópia local. O editor não sobrescreve a outra versão sem essa escolha.
+
+O endereço e a chave pública do Supabase são configuração, não credenciais administrativas. A senha do editor não é gravada no código nem enviada ao GitHub.

@@ -43,9 +43,11 @@ O site continua estático e hospedado no GitHub Pages; o Supabase é usado apena
    ```
 
 4. Preencha `url` e `anonKey` em [supabase-config.js](supabase-config.js) com a URL do projeto e sua chave pública (anon/publishable), disponíveis no painel do Supabase. Essa chave pública pode estar no site; as políticas RLS do SQL protegem o rascunho. **Nunca coloque a chave `service_role` no site ou no GitHub.**
-5. Publique a alteração no GitHub Pages. Entre em **Acesso do editor** primeiro no aparelho que contém seus tabuleiros atuais: na primeira sincronização, esse aparelho envia o rascunho e os tabuleiros salvos. Nos outros aparelhos, entre com a mesma conta para carregá-los.
+5. Publique a alteração no GitHub Pages. Entre em **Entrar** primeiro no aparelho que contém seus tabuleiros atuais: na primeira sincronização, esse aparelho envia o rascunho e os tabuleiros salvos. Nos outros aparelhos, entre com a mesma conta para carregá-los. Somente contas cadastradas em `board_editors` abrem o editor; contas de jogador permanecem no jogo, que também pode ser usado sem login.
 6. Edite normalmente; o autosave local continua com debounce de 1,5 s e envia o rascunho à nuvem quando conectado. Use **Publicar** para atualizar o tabuleiro que os jogadores veem. O PWA mantém a interface e a última publicação carregada disponíveis offline; entrar pela primeira vez e publicar exigem internet.
 
 Se duas sessões editarem o mesmo rascunho ao mesmo tempo, **Sincronizar** detecta a divergência e permite carregar a cópia da nuvem ou enviar explicitamente a cópia local. O editor não sobrescreve a outra versão sem essa escolha.
 
 O endereço e a chave pública do Supabase são configuração, não credenciais administrativas. A senha do editor não é gravada no código nem enviada ao GitHub.
+
+No celular, abra o painel **☷** para acessar as ações do editor (tabuleiros, tiles, importar/exportar, sincronizar, publicar e sair). Use os controles `+`/`−`, o gesto de pinça ou **Encaixar tabuleiro** para navegar pelo mapa.

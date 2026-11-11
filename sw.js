@@ -1,4 +1,4 @@
-const CACHE_NAME='rastro-shell-v2';
+const CACHE_NAME='rastro-shell-v3';
 const APP_SHELL=['./','./index.html','./manifest.webmanifest','./supabase-config.js','./icons/rastro.svg'];
 
 self.addEventListener('install',event=>{

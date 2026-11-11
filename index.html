@@ -4,14 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#101a1b">
-  <meta name="description" content="Editor e jogo de tabuleiros digitais, com acesso offline neste aparelho.">
+  <meta name="description" content="Jogue tabuleiros digitais no navegador, online ou offline neste aparelho.">
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="icon" href="./icons/rastro.svg" type="image/svg+xml">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Rastro">
   <link rel="apple-touch-icon" href="./icons/rastro.svg">
-  <title>Rastro - editor de tabuleiros</title>
+  <title>Rastro - jogo de tabuleiro</title>
   <style>
     :root{font-family:'Bahnschrift','Segoe UI',sans-serif;color:#e8ece2;background:#101a1b;--panel:#172324;--line:#344344;--muted:#91a09c;--lime:#d8f36a;--blue:#8ebeff;--orange:#ff875d;--cream:#e9eadf;--mono:'Cascadia Mono',Consolas,monospace;--display:'Bahnschrift SemiBold','Bahnschrift','Segoe UI',sans-serif}
     *{box-sizing:border-box}body{margin:0;height:100dvh;overflow:hidden;background:#101a1b}button,input,textarea,select{font:inherit}button{color:inherit;cursor:pointer}button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:2px solid var(--lime);outline-offset:2px}
@@ -34,6 +34,50 @@
     body.player-mode #gameMode{display:none}
     #loginBtn,#logoutBtn,#publishBtn,#syncBtn{white-space:nowrap}
     @media(max-width:850px){body.player-mode .workspace{grid-template-columns:minmax(0,1fr)}}
+    .mobile-drawer-head,.mobile-editor-actions{display:none}
+    @media(max-width:850px){
+      .header-actions>button:not(#panelToggle):not(#loginBtn){display:none}
+      aside{width:min(360px,calc(100vw - 56px));padding:0 16px 24px}
+      .mobile-drawer-head{position:sticky;top:0;display:flex;align-items:center;justify-content:space-between;margin:0 -16px 16px;padding:10px 12px;background:#152222;border-bottom:1px solid #293737;z-index:2}
+      .mobile-drawer-head strong{font:600 13px var(--display)}
+      .mobile-drawer-head .icon-btn{width:44px;height:44px}
+      .mobile-editor-actions{display:grid;gap:8px;margin:0 0 18px}
+      .mobile-action-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+      .mobile-editor-actions .quiet-btn{min-height:44px;padding:6px 8px;font-size:12px;white-space:normal}
+      .mobile-editor-actions .primary{grid-column:1/-1}
+      .mobile-editor-actions .danger{grid-column:1/-1}
+      .mobile-editor-hint{margin:0;padding:10px;border:1px solid #344344;border-radius:6px;color:#c1cec3;font-size:11px;line-height:1.55}
+      .rail{width:50px;padding-left:3px;padding-right:3px;overflow-y:auto;overscroll-behavior:contain}
+      .tool-btn{width:44px;height:44px;min-height:44px}
+      .rail-spacer{min-height:10px}
+      .floating.fit-tools .icon-btn,.floating.zoom-tools .icon-btn{width:44px;height:44px;min-height:44px}
+      .floating.zoom-tools{right:12px;bottom:12px;gap:8px}
+      .floating.fit-tools{left:12px;top:12px}
+      .node{width:44px;height:44px}
+      .workspace.panel-open:after{z-index:3}
+    }
+    @media(max-width:520px){
+      .app{min-height:0;grid-template-rows:48px minmax(0,1fr) 88px}
+      header{padding:0 8px;gap:7px}
+      .board-name{max-width:64px;min-width:0}
+      .header-actions{gap:6px}
+      .header-actions #loginBtn{min-height:40px;padding:0 10px;font-size:12px}
+      .header-actions #panelToggle{width:44px;height:44px;min-height:44px}
+      .workspace{grid-template-columns:50px minmax(0,1fr)}
+      .phase-tag{max-width:calc(100% - 112px);overflow:hidden;text-overflow:ellipsis}
+      .floating.zoom-tools{right:10px;bottom:10px}
+      .floating.fit-tools{left:10px;top:10px}
+      .mode-switch button{min-height:40px;padding:8px 10px;font-size:11px}
+      .game-controls{gap:5px}
+      .roll-btn{min-height:40px;font-size:11px}
+      .die{width:36px;height:36px}
+      .hud{overflow-x:auto;max-width:100%;justify-self:stretch;justify-content:center;scrollbar-width:none}
+      .hud::-webkit-scrollbar{display:none}
+      .health-track{width:48px}
+      .inventory{flex-wrap:nowrap}
+      .mobile-editor-hint{font-size:12px}
+    }
+    @media(max-width:850px) and (max-height:500px){.app{min-height:0;grid-template-rows:48px minmax(0,1fr) 76px}}
   </style>
 </head>
 <body class="player-mode">
@@ -41,10 +85,10 @@
     <header>
       <div class="brand"><span class="brand-mark">R</span> Rastro</div>
       <span class="header-divider"></span>
-      <div class="board-name" id="boardName">Novo tabuleiro</div>
+      <div class="board-name" id="boardName">Nenhum publicado</div>
       <div class="save-state" id="saveState"><span class="save-dot"></span><span id="saveLabel">salvo</span></div>
       <div class="header-actions">
-        <button class="quiet-btn" id="loginBtn">Acesso do editor</button>
+        <button class="quiet-btn" id="loginBtn" aria-label="Entrar">Entrar</button>
         <button class="quiet-btn" id="syncBtn">Sincronizar</button>
         <button class="quiet-btn primary" id="publishBtn">Publicar</button>
         <button class="quiet-btn" id="logoutBtn">Sair</button>
@@ -52,7 +96,7 @@
         <button class="quiet-btn wide" id="importBtn" title="Importar tabuleiro JSON">Importar</button>
         <button class="quiet-btn wide" id="exportBtn" title="Exportar tabuleiro JSON">Exportar</button>
         <button class="quiet-btn" id="savedBtn" title="Tabuleiros salvos">Tabuleiros</button>
-        <button class="icon-btn" id="panelToggle" title="Abrir painel">☷</button>
+        <button class="icon-btn" id="panelToggle" title="Abrir painel" aria-label="Abrir painel" aria-expanded="false">☷</button>
       </div>
       <input type="file" id="tilesFile" accept="image/png,.png" multiple hidden>
       <input type="file" id="importFile" accept="application/json,.json" hidden>
@@ -77,13 +121,26 @@
           <div id="nodes"></div>
         </div>
         <div class="empty-note" id="emptyNote"><strong id="emptyTitle">Nenhum tabuleiro publicado</strong><span id="emptyDescription">Volte mais tarde ou fale com o administrador do jogo.</span></div>
-        <div class="phase-tag" id="phaseTag">EDITOR · percurso livre</div>
-        <div class="floating fit-tools"><button class="icon-btn" id="fitBtn" title="Encaixar tabuleiro">⤢</button></div>
-        <div class="floating zoom-tools"><button class="icon-btn" id="zoomOut" title="Diminuir zoom">−</button><button class="icon-btn" id="zoomIn" title="Aumentar zoom">+</button></div>
-        <div class="hint" id="boardHint">Clique para criar · selecione um nó e outro para conectar</div>
+        <div class="phase-tag" id="phaseTag">JOGO · aguardando os dados</div>
+        <div class="floating fit-tools"><button class="icon-btn" id="fitBtn" title="Encaixar tabuleiro" aria-label="Encaixar tabuleiro">⤢</button></div>
+        <div class="floating zoom-tools"><button class="icon-btn" id="zoomOut" title="Diminuir zoom" aria-label="Diminuir zoom">−</button><button class="icon-btn" id="zoomIn" title="Aumentar zoom" aria-label="Aumentar zoom">+</button></div>
+        <div class="hint" id="boardHint">Selecione uma casa iluminada para mover</div>
       </section>
       <aside id="sidePanel">
+        <div class="mobile-drawer-head"><strong id="mobileDrawerTitle">Painel</strong><button class="icon-btn" id="panelClose" title="Fechar painel" aria-label="Fechar painel">×</button></div>
         <div id="editorPanel">
+          <div class="mobile-editor-actions" aria-label="Ações do editor">
+            <div class="mobile-action-grid">
+              <button class="quiet-btn" id="mobileSavedBtn">Tabuleiros</button>
+              <button class="quiet-btn" id="mobileTilesBtn">Tiles</button>
+              <button class="quiet-btn" id="mobileImportBtn">Importar</button>
+              <button class="quiet-btn" id="mobileExportBtn">Exportar</button>
+              <button class="quiet-btn" id="mobileSyncBtn">Sincronizar</button>
+            </div>
+            <button class="quiet-btn primary" id="mobilePublishBtn">Publicar tabuleiro</button>
+            <button class="quiet-btn danger" id="mobileLogoutBtn">Sair da conta</button>
+            <p class="mobile-editor-hint">Toque no tabuleiro para criar nós; toque em dois nós para conectá-los. Arraste o fundo para mover e use dois dedos ou os botões de zoom. Segure um nó para movê-lo.</p>
+          </div>
           <h1 class="panel-heading">Percurso</h1>
           <p class="panel-sub">Construa as trilhas e configure os eventos.</p>
           <div id="nodeEditor"><div class="empty-panel">Selecione um nó para editar suas propriedades.<br><br>Arraste o tabuleiro para navegar. Segure um nó por meio segundo para movê-lo.</div></div>
@@ -94,7 +151,7 @@
           <div class="field"><label for="hordeDelay">Atraso da horda (segundos)</label><input id="hordeDelay" type="number" min="0" value="30"></div>
           <div class="status-message" id="sideMessage"></div>
         </div>
-        <div id="gamePanel" hidden>
+        <div id="gamePanel">
           <h1 class="panel-heading">Estado da partida</h1>
           <p class="panel-sub">A horda avança pelo menor caminho.</p>
           <div class="section-title">Objetivo</div>
@@ -294,7 +351,7 @@
         const nodesEl=$('nodes');nodesEl.replaceChildren();$('edges').replaceChildren();$('emptyNote').hidden=state.nodes.length>0;$('emptyTitle').textContent=state.isEditor?'Desenhe seu percurso':'Nenhum tabuleiro publicado';$('emptyDescription').textContent=state.isEditor?'Clique no tabuleiro para criar o primeiro nó':'Volte mais tarde ou fale com o administrador do jogo.';
         state.nodes.forEach(node=>{(node.edges||[]).forEach(target=>{const dest=findNode(target);if(!dest)return;const line=document.createElementNS('http://www.w3.org/2000/svg','line');line.setAttribute('x1',node.x);line.setAttribute('y1',node.y);line.setAttribute('x2',dest.x);line.setAttribute('y2',dest.y);line.setAttribute('class',`edge ${state.origin===node.id?'selected':''} ${state.moveTarget?.path?.includes(node.id)&&state.moveTarget?.path?.includes(dest.id)?'reachable-forward':''}`);$('edges').append(line)})});
         state.nodes.forEach(node=>{const el=document.createElement('button');el.className='node';el.dataset.id=node.id;el.textContent=node.label||node.id;el.style.left=node.x+'px';el.style.top=node.y+'px';el.style.zIndex=String(1000+Math.round(node.y));el.title=`Nó ${node.label||node.id}`;if(state.origin===node.id)el.classList.add('origin');if(state.selected===node.id)el.classList.add('start');if(node.challenge?.type&&node.challenge.type!=='none')el.classList.add('challenge');if(node.horde)el.classList.add('horde-house');if(node.blocked)el.classList.add('blocked');if(node.hiddenShortcut)el.classList.add('hidden-route');if(state.mode==='game'&&state.moveTarget){const kind=state.moveTarget.reachable.get(node.id);if(kind)el.classList.add(kind);else if(node.id!==state.pawn)el.classList.add('out-of-range')}if(state.mode==='game'&&state.pawn===node.id)el.classList.add('pawn');if(state.horde===node.id)el.classList.add('horde');if(state.miniHordes.includes(node.id))el.classList.add('mini-horde');nodesEl.append(el)});
-        $('phaseTag').textContent=state.mode==='editor'?(state.origin?'EDITOR · escolha um nó de destino':'EDITOR · percurso livre'):'JOGO · '+(state.dice?'escolha um dado e avance':'aguardando os dados');$('boardHint').textContent=state.mode==='editor'?'Clique para criar · selecione um nó e outro para conectar':'Selecione uma casa iluminada para mover';
+        $('phaseTag').textContent=state.mode==='editor'?(state.origin?'EDITOR · escolha um nó de destino':'EDITOR · percurso livre'):'JOGO · '+(state.dice?'escolha um dado e avance':'aguardando os dados');$('boardHint').textContent=state.mode==='editor'?'Clique para criar · selecione um nó e outro para conectar':'Selecione uma casa iluminada para mover';$('mobileDrawerTitle').textContent=state.mode==='editor'?'Ferramentas do editor':'Estado da partida';
         $('editorPanel').hidden=state.mode!=='editor';$('gamePanel').hidden=state.mode!=='game';$('editorMode').classList.toggle('active',state.mode==='editor');$('gameMode').classList.toggle('active',state.mode==='game');$('rollBtn').disabled=state.mode!=='game'||!!state.dice||state.nodes.length===0||state.health<=0;$('die1').textContent=state.dice?state.dice[0]:'·';$('die2').textContent=state.dice?state.dice[1]:'·';$('die1').classList.toggle('selected',state.chosenDie===0&&!!state.dice&&!state.used.includes(0));$('die2').classList.toggle('selected',state.chosenDie===1&&!!state.dice&&!state.used.includes(1));$('die1').classList.toggle('used',state.used.includes(0));$('die2').classList.toggle('used',state.used.includes(1));$('turnNote').textContent=state.mode!=='game'?'Crie uma trilha para jogar':state.dice?`${state.used.length}/2 dados usados`:'Seu turno';
         $('healthValue').textContent=state.health;$('healthFill').style.width=Math.max(0,state.health)+'%';$('healthFill').style.background=state.health<35?'#ff875d':'#b4db73';$('keysHud').textContent=`Chaves ${state.keys}`;$('shieldHud').textContent=`Fé ${state.faith}`;$('swordHud').textContent=`Espada ${state.sword}`;$('shoesHud').textContent=`Calçado ${state.shoes}`;$('faithValue').textContent=state.faith;$('swordValue').textContent=state.sword;$('shoeValue').textContent=state.shoes;$('inventoryDetail').textContent=`Chaves: ${state.keys} · Fé/escudo: ${state.faith} · Espada: ${state.sword} · Calçado: ${state.shoes}`;$('gameObjective').textContent=state.pawn?`Peão no nó ${state.pawn}${state.horde!=null?` · horda no nó ${state.horde}`:''}`:'Crie um percurso no editor, depois volte ao jogo.';
         updateHistoryButtons();renderNodeEditor();
@@ -525,8 +582,8 @@
       }
       function openEditorLogin(){
         if(!isSupabaseConfigured()){toast('Antes, configure a URL e a chave pública em supabase-config.js.');return}
-        const html='<form id="editorLoginForm"><div class="field"><label for="editorEmail">E-mail do editor</label><input id="editorEmail" type="email" autocomplete="username" required></div><div class="field"><label for="editorPassword">Senha</label><input id="editorPassword" type="password" autocomplete="current-password" required></div><p class="status-message">A conta precisa estar autorizada como editora no Supabase.</p></form>';
-        showModal('Acesso do editor','Entre com sua conta administrativa',html,[{label:'Entrar',primary:true,run:async()=>{
+        const html='<form id="editorLoginForm"><div class="field"><label for="editorEmail">E-mail</label><input id="editorEmail" type="email" autocomplete="username" required></div><div class="field"><label for="editorPassword">Senha</label><input id="editorPassword" type="password" autocomplete="current-password" required></div><p class="status-message">A conta controla os recursos disponíveis. Também é possível jogar sem entrar.</p></form>';
+        showModal('Entrar','Informe os dados da sua conta para continuar.',html,[{label:'Entrar',primary:true,run:async()=>{
           const email=$('editorEmail').value.trim(),password=$('editorPassword').value;
           if(!email||!password){toast('Informe e-mail e senha.');return}
           try{
@@ -536,8 +593,11 @@
             const hasPendingChanges=await enterEditor(session);$('modal').close();
             if(pendingWorkspaceConflict){const remoteRow=pendingWorkspaceConflict;pendingWorkspaceConflict=null;resolveWorkspaceConflict(remoteRow)}
             else if(hasPendingChanges)await syncEditorNow();
-            else toast('Acesso do editor ativado');
-          }catch(error){console.error('Falha no acesso do editor:',error);toast(error.message)}
+            else toast('Editor conectado.');
+          }catch(error){
+            if(error.status===403){$('modal').close();toast('Conta de jogador: o jogo continua disponível.');return}
+            console.error('Falha no acesso do editor:',error);toast(error.message)
+          }
         }},{label:'Cancelar',run:()=>$('modal').close()}]);
         $('editorLoginForm').addEventListener('submit',event=>{event.preventDefault();$('modalFoot').querySelector('.primary').click()});
       }
@@ -712,6 +772,11 @@
       function copyModel(){const model={type:'event',title:'',text:'',image:'',keyRequired:0,shortcutLevel:0,rewards:{keys:0,wait:0,faith:0,sword:0,shoes:0,damage:0}};navigator.clipboard?.writeText(JSON.stringify(model,null,2)).then(()=>toast('Modelo JSON copiado')).catch(()=>toast(JSON.stringify(model)))}
       $('editorMode').onclick=stopGame;$('gameMode').onclick=startGame;$('rollBtn').onclick=rollDice;$('die1').onclick=()=>selectDie(0);$('die2').onclick=()=>selectDie(1);$('fitBtn').onclick=fit;$('zoomIn').onclick=()=>{state.zoom=Math.min(2,state.zoom*1.15);render()};$('zoomOut').onclick=()=>{state.zoom=Math.max(.25,state.zoom/1.15);render()};$('undoBtn').onclick=undo;$('redoBtn').onclick=redo;$('deleteBtn').onclick=()=>state.selected!=null&&deleteNode(state.selected);$('savedBtn').onclick=openSaved;$('tilesBtn').onclick=openTiles;$('tilesFile').onchange=async e=>{if(!e.target.files.length)return;pushHistory();for(const file of e.target.files){if(!file.type.includes('png')&&!file.name.toLowerCase().endsWith('.png'))continue;const image=await readFile(file),size=await imageSize(image);state.tiles.push({id:`tile-${Date.now()}-${state.tiles.length}-${Math.random().toString(36).slice(2,7)}`,name:file.name,image,...size})}e.target.value='';render();scheduleSave();openTiles()};$('importBtn').onclick=()=>$('importFile').click();$('importFile').onchange=e=>e.target.files[0]&&importBoard(e.target.files[0]);$('exportBtn').onclick=exportBoard;$('exampleBtn').onclick=useExample;$('copyModelBtn').onclick=copyModel;$('challengeTool').onclick=()=>{state.tool=state.tool==='challenge'?'select':'challenge';syncToolButtons()};$('hordeTool').onclick=()=>{state.tool=state.tool==='horde'?'select':'horde';syncToolButtons()};$('tileTool').onclick=()=>{state.tool=state.tool==='tile'?'select':'tile';syncToolButtons()};$('selectTool').onclick=()=>{state.tool='select';syncToolButtons()};$('hordeDelay').onchange=()=>{state.hordeDelay=Math.max(0,Number($('hordeDelay').value)||0);scheduleSave()};$('panelToggle').onclick=()=>$('workspace').classList.toggle('panel-open');$('shieldSpecial').onclick=()=>activateSpecial('faith');$('swordSpecial').onclick=()=>activateSpecial('sword');$('shoeSpecial').onclick=()=>activateSpecial('shoes');$('restartGame').onclick=startGame;$('modalClose').onclick=()=>$('modal').close();$('modal').addEventListener('click',e=>{if(e.target===$('modal'))$('modal').close()});
       $('loginBtn').onclick=openEditorLogin;$('publishBtn').onclick=publishCurrentBoard;$('syncBtn').onclick=syncEditorNow;$('logoutBtn').onclick=()=>logoutEditor().catch(error=>{console.error('Falha ao sair do editor:',error);toast('Não foi possível concluir a saída.')});
+      $('panelToggle').onclick=()=>{const open=$('workspace').classList.toggle('panel-open'),label=open?'Fechar painel':'Abrir painel';$('panelToggle').setAttribute('aria-expanded',String(open));$('panelToggle').setAttribute('aria-label',label);$('panelToggle').title=label};
+      const closePanel=()=>{$('workspace').classList.remove('panel-open');$('panelToggle').setAttribute('aria-expanded','false');$('panelToggle').setAttribute('aria-label','Abrir painel');$('panelToggle').title='Abrir painel'};
+      $('panelClose').onclick=closePanel;
+      $('workspace').addEventListener('click',event=>{if(event.target===$('workspace')&&$('workspace').classList.contains('panel-open'))closePanel()});
+      $('mobileSavedBtn').onclick=openSaved;$('mobileTilesBtn').onclick=openTiles;$('mobileImportBtn').onclick=()=>$('importFile').click();$('mobileExportBtn').onclick=exportBoard;$('mobileSyncBtn').onclick=syncEditorNow;$('mobilePublishBtn').onclick=publishCurrentBoard;$('mobileLogoutBtn').onclick=()=>logoutEditor().catch(error=>{console.error('Falha ao sair do editor:',error);toast('Não foi possível concluir a saída.')});
       $('modal').addEventListener('close',()=>{state.pendingMove=null});window.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();e.shiftKey?redo():undo()}else if(e.key==='Delete'&&state.selected!=null&&state.mode==='editor'&&!['INPUT','TEXTAREA'].includes(document.activeElement.tagName))deleteNode(state.selected);else if(e.key==='Escape'){state.origin=null;render()}});window.addEventListener('resize',()=>{if(state.mode==='game')fit()});
       async function enableOfflineEditor(){
         if(!cloudSession||localStorage.getItem(EDITOR_CACHE_KEY)!=='true')return false;
